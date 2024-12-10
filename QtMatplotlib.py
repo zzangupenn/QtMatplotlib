@@ -17,7 +17,7 @@ class QtPlotterProcess:
         self.queue = queue
         self.app = QApplication([])
         self.win = pg.GraphicsLayoutWidget(show=True, title=win_title)
-        self.plot = self.win.addPlot(title=win_title)
+        self.plot = self.win.addPlot(title='')
         self.plot.enableAutoRange('xy', True)
         self.plot.setAspectLocked(True)
         self.colormap = plt.get_cmap('viridis')
@@ -29,8 +29,18 @@ class QtPlotterProcess:
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_plots)
         self.timer.start(timer_delay)  # Update every 1000 ms (1 second)
+        self.plot.scene().sigMouseMoved.connect(self.on_mouse_move)
+        self.label = pg.LabelItem(justify='left')
+        self.win.addItem(self.label, row=1, col=0)
+        self.plot.showGrid(x=True, y=True, alpha=0.3)
         
         sys.exit(self.app.exec_())
+        
+    def on_mouse_move(self, evt):
+        """Handle mouse move events to display coordinates."""
+        pos = self.plot.vb.mapSceneToView(evt)
+        x, y = pos.x(), pos.y()
+        self.label.setText(f"x {x:.2f}, y {y:.2f}")
         
     def get_brushes(self, z):
         z_normalized = (z - z.min()) / (z.max() - z.min())
@@ -47,11 +57,14 @@ class QtPlotterProcess:
         
     def update_scatter(self, plot_num, data_in, colors=None):
         if colors is not None:
-            colors = self.get_brushes(colors)
+            brushes = self.get_brushes(colors)
         self.plots[plot_num].setData(pos=np.column_stack((data_in[:, 0], data_in[:, 1])))
         self.data[plot_num] = data_in
         if colors is not None:
-            self.plots[plot_num].setBrush(colors)    
+            self.plots[plot_num].setBrush(brushes)    
+        # color_bar = pg.ColorBarItem(values=(colors.min(), colors.max()), cmap=self.colormap)
+        # color_bar.setImageItem(None)  # No image, just a color bar
+        # self.win.addItem(color_bar, row=0, col=1)
     
     def update_plots(self):
         while not self.queue.empty():
@@ -101,7 +114,6 @@ class QtPlotter:
                 raise ValueError("plot_num must be greater than or equal to 0")
             elif plot_num == self.total_plot_num:
                 self.add_scatter_plot(size=s, name=name)
-        print(plot_num)
         self.update_scatter(plot_num, np.column_stack((x, y)), colors=c)
         self.queue.put(self.send_dict)
         if not live:
