@@ -1,22 +1,19 @@
-from PyQt6.QtWidgets import QApplication
-from PyQt6 import QtCore
-import pyqtgraph as pg
 import numpy as np
-import matplotlib.pyplot as plt
-import multiprocessing as mp
-import sys
-import time
-
-pg.setConfigOption('background', 'w')
-pg.setConfigOption('foreground', 'k')
 
 class QtPlotter:
     def __init__(self, timer_delay=1, win_title="QtMatplotlib"):
+        import pyqtgraph as pg
+        self.pg = pg
+        import PyQt6
+        self.PyQt6 = PyQt6
         self.timer_delay = timer_delay
         self.win_title = win_title
         self.total_plot_num = 0
         self.send_dict = {'add': {}, 'update': []}
         self.window_exist = False
+        self.pg.setConfigOption('background', 'w')
+        self.pg.setConfigOption('foreground', 'k')
+
         
     def xlabel(self, label: str):
         self._send_axis_update(x_label=label)
@@ -73,6 +70,7 @@ class QtPlotter:
         self._update_plot(live)
 
     def _init_process(self):
+        import multiprocessing as mp
         self.queue = mp.Queue()
         self.plot_process = QtPlotterProcess()
         self.process = mp.Process(target=self.plot_process.run, args=(
@@ -110,16 +108,20 @@ class QtPlotter:
 class QtPlotterProcess:
 
     def __init__(self):
-        pass
+        import pyqtgraph as pg
+        self.pg = pg
+        import PyQt6
+        self.PyQt6 = PyQt6
 
     def run(self, queue, timer_delay, win_title, show_fps=False):
         self.queue = queue
-        self.app = QApplication([])
-        self.win = pg.GraphicsLayoutWidget(title=win_title)
+        self.app = self.PyQt6.QtWidgets.QApplication([])
+        self.win = self.pg.GraphicsLayoutWidget(title=win_title)
         self.win.show()
         self.figure = self.win.addPlot(title='')
         self.figure.enableAutoRange('xy', True)
         self.figure.setAspectLocked(True)
+        import matplotlib.pyplot as plt
         self.colormap = plt.get_cmap('viridis')
         self.axis_config = {
             "x_label": "",
@@ -132,29 +134,29 @@ class QtPlotterProcess:
         self.data = []
 
         # Timer
-        self.timer = QtCore.QTimer()
+        self.timer = self.PyQt6.QtCore.QTimer()
         self.timer.timeout.connect(self.update_figure)
         self.timer.start(timer_delay)
 
         self.figure.scene().sigMouseMoved.connect(self._on_mouse_move)
-        self.label = pg.LabelItem(justify='left')
+        self.label = self.pg.LabelItem(justify='left')
         self.win.addItem(self.label, row=1, col=0)
         self.figure.showGrid(x=True, y=True, alpha=0.3)
         
         self.show_fps = show_fps
         if show_fps:
-            self.fps_text = pg.TextItem(text='', anchor=(1, 1), color=(150, 150, 150), 
-                                        fill=pg.mkBrush(255, 255, 255, 180))
+            self.fps_text = self.pg.TextItem(text='', anchor=(1, 1), color=(150, 150, 150), 
+                                        fill=self.pg.mkBrush(255, 255, 255, 180))
             self.figure.addItem(self.fps_text)
             self.fps_text.setZValue(1000)
-            self.elapsed_timer = QtCore.QElapsedTimer()
+            self.elapsed_timer = self.PyQt6.QtCore.QElapsedTimer()
             self.elapsed_timer.start()
             self.frame_count = 0
-
+        import sys
         sys.exit(self.app.exec())
         
     def eventFilter(self, obj, event):
-        if event.type() == QtCore.QEvent.Type.Close:
+        if event.type() == self.PyQt6.QtCore.QEvent.Type.Close:
             self.app.quit()
             return True
         return False
@@ -186,15 +188,15 @@ class QtPlotterProcess:
 
     def _get_brushes(self, z):
         z_normalized = (z - z.min()) / (z.max() - z.min())
-        brushes = [pg.mkBrush(*[int(c * 255) for c in self.colormap(value)[:3]]) for value in z_normalized]
+        brushes = [self.pg.mkBrush(*[int(c * 255) for c in self.colormap(value)[:3]]) for value in z_normalized]
         return brushes
     
     def add_plot(self, plot_type, size=10, pen=None, name=""):
         if plot_type == 'scatter':
-            item = pg.ScatterPlotItem(size=size, brush=pg.mkBrush(0, 0, 0), name=name)
+            item = self.pg.ScatterPlotItem(size=size, brush=self.pg.mkBrush(0, 0, 0), name=name)
         elif plot_type == 'line':
-            mk_pen = pg.mkPen(**pen) if pen else pg.mkPen(0, 0, 0)
-            item = pg.PlotDataItem(pen=mk_pen, name=name)
+            mk_pen = self.pg.mkPen(**pen) if pen else self.pg.mkPen(0, 0, 0)
+            item = self.pg.PlotDataItem(pen=mk_pen, name=name)
         else:
             raise ValueError(f"Unknown plot_type: {plot_type}")
         self.figure.addItem(item)
@@ -213,7 +215,7 @@ class QtPlotterProcess:
         elif plot_type == 'line':
             item.setData(x=kwargs['x'], y=kwargs['y'])
             if 'pen' in kwargs and kwargs['pen'] is not None:
-                item.setPen(pg.mkPen(**kwargs['pen']))
+                item.setPen(self.pg.mkPen(**kwargs['pen']))
             
         self.data[plot_num] = (kwargs['x'], kwargs['y'])
 
