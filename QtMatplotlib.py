@@ -1,80 +1,101 @@
-from PyQt5.QtWidgets import QApplication
-from pyqtgraph.Qt import QtCore
+from PyQt6.QtWidgets import QApplication
+from PyQt6 import QtCore
 import pyqtgraph as pg
 import numpy as np
 import matplotlib.pyplot as plt
 import multiprocessing as mp
 import sys
+
 pg.setConfigOption('background', 'w')
 pg.setConfigOption('foreground', 'k')
 
+
 class QtPlotterProcess:
-    
+
     def __init__(self):
         pass
-        
+
     def run(self, queue, timer_delay, win_title):
         self.queue = queue
         self.app = QApplication([])
         self.win = pg.GraphicsLayoutWidget(show=True, title=win_title)
-        self.plot = self.win.addPlot(title='')
-        self.plot.enableAutoRange('xy', True)
-        self.plot.setAspectLocked(True)
+        self.figure = self.win.addPlot(title='')
+        self.figure.enableAutoRange('xy', True)
+        self.figure.setAspectLocked(True)
         self.colormap = plt.get_cmap('viridis')
-        
+
         self.plots = []
         self.data = []
-        
-        # Timer to change colors every second
+
+        # Timer
         self.timer = QtCore.QTimer()
-        self.timer.timeout.connect(self.update_plots)
-        self.timer.start(timer_delay)  # Update every 1000 ms (1 second)
-        self.plot.scene().sigMouseMoved.connect(self.on_mouse_move)
+        self.timer.timeout.connect(self.update_figure)
+        self.timer.start(timer_delay)
+
+        self.figure.scene().sigMouseMoved.connect(self._on_mouse_move)
         self.label = pg.LabelItem(justify='left')
         self.win.addItem(self.label, row=1, col=0)
-        self.plot.showGrid(x=True, y=True, alpha=0.3)
-        
-        sys.exit(self.app.exec_())
-        
-    def on_mouse_move(self, evt):
-        """Handle mouse move events to display coordinates."""
-        pos = self.plot.vb.mapSceneToView(evt)
+        self.figure.showGrid(x=True, y=True, alpha=0.3)
+
+        sys.exit(self.app.exec())
+
+    def _on_mouse_move(self, evt):
+        pos = self.figure.vb.mapSceneToView(evt)
         x, y = pos.x(), pos.y()
         self.label.setText(f"x {x:.2f}, y {y:.2f}")
-        
-    def get_brushes(self, z):
+
+    def _get_brushes(self, z):
         z_normalized = (z - z.min()) / (z.max() - z.min())
         brushes = [pg.mkBrush(*[int(c * 255) for c in self.colormap(value)[:3]]) for value in z_normalized]
         return brushes
-        
-    def add_scatter_plot(self, size=10, name=""):
-        brush = pg.mkBrush((0, 0, 0))
-        scatter_plot = pg.ScatterPlotItem(size=size, brush=brush, name=name)
-        self.plots.append(scatter_plot)
-        self.data.append([])
-        self.plot.addItem(scatter_plot)
-        return len(self.plots) - 1
-        
-    def update_scatter(self, plot_num, data_in, colors=None):
-        if colors is not None:
-            brushes = self.get_brushes(colors)
-        self.plots[plot_num].setData(pos=np.column_stack((data_in[:, 0], data_in[:, 1])))
-        self.data[plot_num] = data_in
-        if colors is not None:
-            self.plots[plot_num].setBrush(brushes)    
-        # color_bar = pg.ColorBarItem(values=(colors.min(), colors.max()), cmap=self.colormap)
-        # color_bar.setImageItem(None)  # No image, just a color bar
-        # self.win.addItem(color_bar, row=0, col=1)
     
-    def update_plots(self):
+    def add_plot(self, plot_type, size=10, pen=None, name=""):
+        if plot_type == 'scatter':
+            item = pg.ScatterPlotItem(size=size, brush=pg.mkBrush(0, 0, 0), name=name)
+        elif plot_type == 'line':
+            mk_pen = pg.mkPen(**pen) if pen else pg.mkPen(0, 0, 0)
+            item = pg.PlotDataItem(pen=mk_pen, name=name)
+        else:
+            raise ValueError(f"Unknown plot_type: {plot_type}")
+        self.figure.addItem(item)
+        self.plots.append(item)
+        self.data.append([])
+        return len(self.plots) - 1
+            
+    def update_plot(self, plot_num, plot_type, **kwargs):
+        item = self.plots[plot_num]
+        
+        if plot_type == 'scatter':
+            item.setData(pos=np.column_stack((kwargs['x'], kwargs['y'])))
+            if kwargs.get('colors') is not None:
+                item.setBrush(self._get_brushes(kwargs['colors']))
+                
+        elif plot_type == 'line':
+            item.setData(x=kwargs['x'], y=kwargs['y'])
+            if 'pen' in kwargs and kwargs['pen'] is not None:
+                item.setPen(pg.mkPen(**kwargs['pen']))
+            
+        self.data[plot_num] = (kwargs['x'], kwargs['y'])
+
+    def update_figure(self):
         while not self.queue.empty():
             data = self.queue.get()
-            if len(data['add']) > 0:
-                self.add_scatter_plot(data['add']['size'], data['add']['name'])
-            if len(data['update']) > 0:
-                for update_dict in data['update']:
-                    self.update_scatter(update_dict['plot_num'], update_dict['data_in'], update_dict['colors'])
-        
+            
+            # Handle new plots
+            for add_dict in data['add']:
+                self.add_plot(add_dict['plot_type'],
+                            size=add_dict.get('size', 10),
+                            pen=add_dict.get('pen', None),
+                            name=add_dict.get('name', ""))
+
+            # Handle updates
+            for update_dict in data['update']:
+                self.update_plot(update_dict['plot_num'],
+                                update_dict['plot_type'],
+                                x=update_dict['x'],
+                                y=update_dict['y'],
+                                colors=update_dict.get('colors', None))
+
 
 class QtPlotter:
     def __init__(self, timer_delay=50, win_title="QtMatplotlib"):
@@ -87,44 +108,73 @@ class QtPlotter:
     def init_process(self):
         self.queue = mp.Queue()
         self.plot_process = QtPlotterProcess()
-        self.process = mp.Process(target=self.plot_process.run, args=(self.queue, 
-                                                                 self.timer_delay,
-                                                                 self.win_title))
+        self.process = mp.Process(target=self.plot_process.run, args=(
+            self.queue,
+            self.timer_delay,
+            self.win_title
+        ))
         self.process.start()
         self.window_exist = True
-
-    def add_scatter_plot(self, size=10, name=""):
-        self.total_plot_num += 1
-        self.send_dict['add'] = {'size': size, 'name': name}
-        return self.total_plot_num - 1
-            
-    def update_scatter(self, plot_num, data_in, colors=None):
-        self.send_dict['update'].append({'plot_num': plot_num, 'data_in': data_in, 'colors': colors})
     
-    def scatter(self, x, y, c=None, s=10, name="", live=False, plot_num=None):
-        if not live or self.window_exist is False:
+    def _add_plot(self, plot_num, live, plot_type, **kwargs):
+        if not live or not self.window_exist:
             self.init_process()
-        self.send_dict = {'add': {}, 'update': []}
-        if plot_num is None:
-            plot_num = self.add_scatter_plot(size=s, name=name)
+        self.send_dict = {'add': [], 'update': []}
+        if plot_num is None or plot_num == self.total_plot_num:
+            self.total_plot_num += 1
+            self.send_dict['add'].append({'plot_type': plot_type, **kwargs})
+            return self.total_plot_num - 1
+        elif 0 <= plot_num < self.total_plot_num:
+            return plot_num
         else:
-            if plot_num >= self.total_plot_num + 1:
-                raise ValueError("plot_num must be less than the total number of plots")
-            elif plot_num < 0:
-                raise ValueError("plot_num must be greater than or equal to 0")
-            elif plot_num == self.total_plot_num:
-                self.add_scatter_plot(size=s, name=name)
-        self.update_scatter(plot_num, np.column_stack((x, y)), colors=c)
+            raise ValueError("Invalid plot_num")
+    
+    def _update_plot(self, live):
         self.queue.put(self.send_dict)
         if not live:
             self.process.join()
             self.total_plot_num -= 1
-        
-        
             
-    
+    def scatter(self, x, y, c=None, s=10, name="", live=False, plot_num=None):
+        plot_num = self._add_plot(plot_num, live, 'scatter', size=s, name=name)
+        self.send_dict['update'].append({
+            'plot_num': plot_num,
+            'plot_type': 'scatter',
+            'x': x,
+            'y': y,
+            'colors': c
+        })
+        self._update_plot(live)
 
 
+    def plot(self, *args, live=False, plot_num=None, name="", **kwargs):
+        """
+        Usage like matplotlib.pyplot.plot():
+        - plot(y)
+        - plot(x, y)
+        - plot(x, y, color='r', linewidth=2)
+        """
+        if len(args) == 1:
+            y = np.asarray(args[0])
+            x = np.arange(len(y))
+        elif len(args) == 2:
+            x = np.asarray(args[0])
+            y = np.asarray(args[1])
+        else:
+            raise ValueError("plot() accepts either plot(y) or plot(x, y)")
 
+        color = kwargs.get("color", 'k')  # default: black
+        width = kwargs.get("linewidth", 2)
 
+        pen_kwargs={'color': color, 'width': width}
+
+        plot_num = self._add_plot(plot_num, live, 'line', pen=pen_kwargs, name=name)
+        self.send_dict['update'].append({
+            'plot_num': plot_num,
+            'plot_type': 'line',
+            'x': x,
+            'y': y,
+            'pen': pen_kwargs
+        })
+        self._update_plot(live)
 
