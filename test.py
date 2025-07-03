@@ -24,18 +24,23 @@ qt_plotter = QtPlotter()
 
 
 # Example of animating a sine wave using QtPlotter
-fps = 60  # frames per second
-qt = QtPlotter(timer_delay=10, win_title="Sine Wave Animation")
+fps = 144  # frames per second
+qt = QtPlotter(win_title="Sine Wave Animation")
 
 x = np.linspace(0, 2 * np.pi, 500)
 amplitude = np.sin(x)
 plot_num = None  # initialize to None to create new plot on first call
 
-for i in range(200):  # animate 200 frames
-    phase_shift = i * 0.1
+for i in range(20 * fps):  # animate 200 frames
+    phase_shift = i * 2 / fps
     y = np.sin(x + phase_shift)
 
     # plot_num=0 after first call to reuse the same plot
     plot_num = 0
-    qt.plot(x, y, color='blue', linewidth=2, live=True, plot_num=plot_num)
+    qt.plot(x, y, color='blue', linewidth=3, live=True, plot_num=plot_num)
+    qt.xlabel("X-axis")
+    qt.ylabel("Y-axis")
+    qt.xlim(0, 2 * np.pi)
+    qt.ylim(-1, 1)
     time.sleep(1 / fps)  # control frame rate
+    
