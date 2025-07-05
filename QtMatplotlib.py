@@ -165,12 +165,6 @@ class QtPlotterProcess:
         import sys
         start_event.set()
         sys.exit(self.app.exec())
-        
-    def eventFilter(self, obj, event):
-        if event.type() == self.PyQt6.QtCore.QEvent.Type.Close:
-            self.app.quit()
-            return True
-        return False
     
     def _apply_axis_config(self):
         if self.axis_config["x_label"]:
